@@ -14,6 +14,8 @@ find_package(OpenMP
         C
 )
 
+find_package (SQLite3)
+
 # Generate version header
 include(../../extern/version.cmake)
 
@@ -79,6 +81,14 @@ target_link_libraries(swmm5
         $<$<BOOL:${OpenMP_C_FOUND}>:OpenMP::OpenMP_C>
         $<$<BOOL:${OpenMP_AVAILABLE}>:omp>
 )
+
+include_directories(
+    ${SQLite3_INCLUDE_DIRS}
+    )
+    
+target_link_libraries (swmm5 
+PUBLIC
+${SQLite3_LIBRARIES})
 
 target_include_directories(swmm5
     PUBLIC

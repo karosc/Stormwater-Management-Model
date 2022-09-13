@@ -23,6 +23,7 @@ typedef double DateTime;
 #define Y_M_D 0
 #define M_D_Y 1
 #define D_M_Y 2
+#define ISO 3
 #define NO_DATE -693594 // 1/1/0001
 #define DATE_STR_SIZE 12
 #define TIME_STR_SIZE 9

@@ -37,11 +37,8 @@
 
 #include "headers.h"
 #include "version.h"
+#include "output.h"
 
-// Definition of 4-byte integer, 4-byte real and 8-byte real types
-#define INT4  int
-#define REAL4 float
-#define REAL8 double
 
 enum InputDataType {INPUT_TYPE_CODE, INPUT_AREA, INPUT_INVERT, INPUT_MAX_DEPTH,
                     INPUT_OFFSET, INPUT_LENGTH};
@@ -54,18 +51,20 @@ typedef struct                                                                 /
 //-----------------------------------------------------------------------------
 //  Shared variables    
 //-----------------------------------------------------------------------------
-static INT4      IDStartPos;           // starting file position of ID names
-static INT4      InputStartPos;        // starting file position of input data
-static INT4      OutputStartPos;       // starting file position of output data
-static INT4      BytesPerPeriod;       // bytes saved per simulation time period
-static INT4      NumSubcatchVars;      // number of subcatchment output variables
-static INT4      NumNodeVars;          // number of node output variables
-static INT4      NumLinkVars;          // number of link output variables
-static INT4      NumSubcatch;          // number of subcatchments reported on
-static INT4      NumNodes;             // number of nodes reported on
-static INT4      NumLinks;             // number of links reported on
-static INT4      NumPolluts;           // number of pollutants reported on
-static REAL4     SysResults[MAX_SYS_RESULTS];    // values of system output vars.
+INT4      IDStartPos;           // starting file position of ID names
+INT4      InputStartPos;        // starting file position of input data
+INT4      OutputStartPos;       // starting file position of output data
+INT4      BytesPerPeriod;       // bytes saved per simulation time period
+INT4      NumSubcatchVars;      // number of subcatchment output variables
+INT4      NumNodeVars;          // number of node output variables
+INT4      NumLinkVars;          // number of link output variables
+INT4      NumSubcatch;          // number of subcatchments reported on
+INT4      NumNodes;             // number of nodes reported on
+INT4      NumLinks;             // number of links reported on
+INT4      NumPolluts;           // number of pollutants reported on
+REAL4     SysResults[MAX_SYS_RESULTS];    // values of system output vars.
+
+static int outfile_type;    // type of outfile used (sqlite vs binary)
 
 static TAvgResults* AvgLinkResults;                                            //(5.1.013)
 static TAvgResults* AvgNodeResults;                                            //
@@ -82,17 +81,29 @@ REAL4*           LinkResults;
 //-----------------------------------------------------------------------------
 //  Local functions
 //-----------------------------------------------------------------------------
-static void output_openOutFile(void);
-static void output_saveID(char* id, FILE* file);
-static void output_saveSubcatchResults(double reportTime, FILE* file);
-static void output_saveNodeResults(double reportTime, FILE* file);
-static void output_saveLinkResults(double reportTime, FILE* file);
+
+static void output_saveSubcatchResults(double reportTime, TFile Fout);
+static void output_saveNodeResults(double reportTime, TFile Fout);
+static void output_saveLinkResults(double reportTime, TFile Fout);
 
 static int  output_openAvgResults(void);                                       //(5.1.013)
 static void output_closeAvgResults(void);                                      //
 static void output_initAvgResults(void);                                       //
-static void output_saveAvgResults(FILE* file);                                 //
+static void output_saveAvgResults(double reportTime,  TFile Fout);                                 //
 
+
+static int output_iface( TFile Fout);                                          //determine the format of outfile based on file extension
+
+//-----------------------------------------------------------------------------
+// function pointers that will point to appropriate output interface functions
+//-----------------------------------------------------------------------------
+int (*OutIface_saveNodeResults)(char*,DateTime ,TFile);
+int (*OutIface_saveLinkResults)(char*,DateTime ,TFile);
+int (*OutIface_saveSubcatchResults)(char*,DateTime ,TFile);
+int (*OutIface_saveSysResults)(DateTime ,TFile);
+int (*OutIface_init)(void);
+void (*OutIface_output_end)(void);
+void (*OutIface_output_close)(void);
 
 //-----------------------------------------------------------------------------
 //  External functions (declared in funcs.h)
@@ -108,24 +119,70 @@ static void output_saveAvgResults(FILE* file);                                 /
 //  output_readNodeResults        (called by report_Nodes)
 //  output_readLinkResults        (called by report_Links)
 
+const char *get_filename_ext(const char *filename) 
+//
+//  Input:   filename = file name string
+//  Output:  extension of file name
+//  Purpose: To extract the extension from a file name
+//
+{
+    const char *dot = strrchr(filename, '.');
+    if(!dot || dot == filename) return "";
+    return dot + 1;
+}
 
-//=============================================================================
+
+int output_iface(TFile Fout)
+//
+//  Input:   Fout = output file struct
+//  Output:  outfile_type  integer
+//  Purpose: To determine the appropriate output file 
+//           format to use based on the file name extension
+//
+{
+
+    if (strcmp(get_filename_ext(Fout.name),"db")==0) return 1;
+
+    return 0;
+}
 
 int output_open()
 //
 //  Input:   none
 //  Output:  returns an error code
-//  Purpose: writes basic project data to binary output file.
+//  Purpose: opens and writes basic project data to output file.
 //
 {
+    
     int   j;
-    int   m;
-    INT4  k;
-    REAL4 x;
-    REAL8 z;
+    
+    outfile_type = output_iface(Fout);
 
-    // --- open binary output file
-    output_openOutFile();
+
+    // switch block that aliases output file writing functions to interface function pointers
+    // used throughout this file. 
+    switch(outfile_type){
+        case 0:
+            OutIface_saveNodeResults = bin_saveNodeResults;
+            OutIface_saveLinkResults = bin_saveLinkResults;
+            OutIface_saveSubcatchResults = bin_saveSubcatchResults;
+            OutIface_saveSysResults = bin_saveSysResults;
+            OutIface_init = output_out_init;
+            OutIface_output_end = bin_output_end;
+            OutIface_output_close = bin_output_close;
+            break;
+        
+        case 1:
+            OutIface_saveNodeResults = sql_saveNodeResults;
+            OutIface_saveLinkResults = sql_saveLinkResults;
+            OutIface_saveSubcatchResults = sql_saveSubcatchResults;
+            OutIface_saveSysResults = sql_saveSysResults;
+            OutIface_init = output_sql_init;
+            OutIface_output_end = sql_output_end;
+            OutIface_output_close = sql_output_close;
+            
+    }
+
     if ( ErrorCode ) return ErrorCode;
 
     // --- ignore pollutants if no water quality analsis performed
@@ -152,11 +209,7 @@ int output_open()
     for (j=0; j<Nobjects[NODE]; j++) if (Node[j].rptFlag) NumNodes++;
     for (j=0; j<Nobjects[LINK]; j++) if (Link[j].rptFlag) NumLinks++;
 
-    BytesPerPeriod = sizeof(REAL8)
-        + NumSubcatch * NumSubcatchVars * sizeof(REAL4)
-        + NumNodes * NumNodeVars * sizeof(REAL4)
-        + NumLinks * NumLinkVars * sizeof(REAL4)
-        + MAX_SYS_RESULTS * sizeof(REAL4);
+    
     Nperiods = 0;
 
     SubcatchResults = NULL;
@@ -180,269 +233,12 @@ int output_open()
         return ErrorCode;                                                      //
     }                                                                          //
 
-    fseek(Fout.file, 0, SEEK_SET);
-    k = MAGICNUMBER;
-    fwrite(&k, sizeof(INT4), 1, Fout.file);   // Magic number
-    k = get_version_legacy();
-    fwrite(&k, sizeof(INT4), 1, Fout.file);   // Version number
-    k = FlowUnits;
-    fwrite(&k, sizeof(INT4), 1, Fout.file);   // Flow units
-    k = NumSubcatch;
-    fwrite(&k, sizeof(INT4), 1, Fout.file);   // # subcatchments
-    k = NumNodes;
-    fwrite(&k, sizeof(INT4), 1, Fout.file);   // # nodes
-    k = NumLinks;
-    fwrite(&k, sizeof(INT4), 1, Fout.file);   // # links
-    k = NumPolluts;
-    fwrite(&k, sizeof(INT4), 1, Fout.file);   // # pollutants
-
-    // --- save ID names of subcatchments, nodes, links, & pollutants 
-    IDStartPos = ftell(Fout.file);
-    for (j=0; j<Nobjects[SUBCATCH]; j++)
-    {
-        if ( Subcatch[j].rptFlag ) output_saveID(Subcatch[j].ID, Fout.file);
-    }
-    for (j=0; j<Nobjects[NODE];     j++)
-    {
-        if ( Node[j].rptFlag ) output_saveID(Node[j].ID, Fout.file);
-    }
-    for (j=0; j<Nobjects[LINK];     j++)
-    {
-        if ( Link[j].rptFlag ) output_saveID(Link[j].ID, Fout.file);
-    }
-    for (j=0; j<NumPolluts; j++) output_saveID(Pollut[j].ID, Fout.file);
-
-    // --- save codes of pollutant concentration units
-    for (j=0; j<NumPolluts; j++)
-    {
-        k = Pollut[j].units;
-        fwrite(&k, sizeof(INT4), 1, Fout.file);
-    }
-
-    InputStartPos = ftell(Fout.file);
-
-    // --- save subcatchment area
-    k = 1;
-    fwrite(&k, sizeof(INT4), 1, Fout.file);
-    k = INPUT_AREA;
-    fwrite(&k, sizeof(INT4), 1, Fout.file);
-    for (j=0; j<Nobjects[SUBCATCH]; j++)
-    {
-         if ( !Subcatch[j].rptFlag ) continue;
-         SubcatchResults[0] = (REAL4)(Subcatch[j].area * UCF(LANDAREA));
-         fwrite(&SubcatchResults[0], sizeof(REAL4), 1, Fout.file);
-    }
-
-    // --- save node type, invert, & max. depth
-    k = 3;
-    fwrite(&k, sizeof(INT4), 1, Fout.file);
-    k = INPUT_TYPE_CODE;
-    fwrite(&k, sizeof(INT4), 1, Fout.file);
-    k = INPUT_INVERT;
-    fwrite(&k, sizeof(INT4), 1, Fout.file);
-    k = INPUT_MAX_DEPTH;
-    fwrite(&k, sizeof(INT4), 1, Fout.file);
-    for (j=0; j<Nobjects[NODE]; j++)
-    {
-        if ( !Node[j].rptFlag ) continue;
-        k = Node[j].type;
-        NodeResults[0] = (REAL4)(Node[j].invertElev * UCF(LENGTH));
-        NodeResults[1] = (REAL4)(Node[j].fullDepth * UCF(LENGTH));
-        fwrite(&k, sizeof(INT4), 1, Fout.file);
-        fwrite(NodeResults, sizeof(REAL4), 2, Fout.file);
-    }
-
-    // --- save link type, offsets, max. depth, & length
-    k = 5;
-    fwrite(&k, sizeof(INT4), 1, Fout.file);
-    k = INPUT_TYPE_CODE;
-    fwrite(&k, sizeof(INT4), 1, Fout.file);
-    k = INPUT_OFFSET;
-    fwrite(&k, sizeof(INT4), 1, Fout.file);
-    k = INPUT_OFFSET;
-    fwrite(&k, sizeof(INT4), 1, Fout.file);
-    k = INPUT_MAX_DEPTH;
-    fwrite(&k, sizeof(INT4), 1, Fout.file);
-    k = INPUT_LENGTH;
-    fwrite(&k, sizeof(INT4), 1, Fout.file);
-
-    for (j=0; j<Nobjects[LINK]; j++)
-    {
-        if ( !Link[j].rptFlag ) continue;
-        k = Link[j].type;
-        if ( k == PUMP )
-        {
-            for (m=0; m<4; m++) LinkResults[m] = 0.0f;
-        }
-        else
-        {
-            LinkResults[0] = (REAL4)(Link[j].offset1 * UCF(LENGTH));
-            LinkResults[1] = (REAL4)(Link[j].offset2 * UCF(LENGTH));
-            if ( Link[j].direction < 0 )
-            {
-                x = LinkResults[0];
-                LinkResults[0] = LinkResults[1];
-                LinkResults[1] = x;
-            }
-            if ( k == OUTLET ) LinkResults[2] = 0.0f;
-            else LinkResults[2] = (REAL4)(Link[j].xsect.yFull * UCF(LENGTH));
-            if ( k == CONDUIT )
-            {
-                m = Link[j].subIndex;
-                LinkResults[3] = (REAL4)(Conduit[m].length * UCF(LENGTH));
-            }
-            else LinkResults[3] = 0.0f;
-        }
-        fwrite(&k, sizeof(INT4), 1, Fout.file);
-        fwrite(LinkResults, sizeof(REAL4), 4, Fout.file);
-    }
-
-    // --- save number & codes of subcatchment result variables
-    k = NumSubcatchVars;
-    fwrite(&k, sizeof(INT4), 1, Fout.file);
-    k = SUBCATCH_RAINFALL;
-    fwrite(&k, sizeof(INT4), 1, Fout.file);
-    k = SUBCATCH_SNOWDEPTH;
-    fwrite(&k, sizeof(INT4), 1, Fout.file);
-    k = SUBCATCH_EVAP;
-    fwrite(&k, sizeof(INT4), 1, Fout.file);
-    k = SUBCATCH_INFIL;
-    fwrite(&k, sizeof(INT4), 1, Fout.file);
-    k = SUBCATCH_RUNOFF;
-    fwrite(&k, sizeof(INT4), 1, Fout.file);
-    k = SUBCATCH_GW_FLOW;
-    fwrite(&k, sizeof(INT4), 1, Fout.file);
-    k = SUBCATCH_GW_ELEV;
-    fwrite(&k, sizeof(INT4), 1, Fout.file);
-    k = SUBCATCH_SOIL_MOIST;
-    fwrite(&k, sizeof(INT4), 1, Fout.file);
-
-    for (j=0; j<NumPolluts; j++) 
-    {
-        k = SUBCATCH_WASHOFF + j;
-        fwrite(&k, sizeof(INT4), 1, Fout.file);
-    }
-
-    // --- save number & codes of node result variables
-    k = NumNodeVars;
-    fwrite(&k, sizeof(INT4), 1, Fout.file);
-    k = NODE_DEPTH;
-    fwrite(&k, sizeof(INT4), 1, Fout.file);
-    k = NODE_HEAD;
-    fwrite(&k, sizeof(INT4), 1, Fout.file);
-    k = NODE_VOLUME;
-    fwrite(&k, sizeof(INT4), 1, Fout.file);
-    k = NODE_LATFLOW;
-    fwrite(&k, sizeof(INT4), 1, Fout.file);
-    k = NODE_INFLOW;
-    fwrite(&k, sizeof(INT4), 1, Fout.file);
-    k = NODE_OVERFLOW;
-    fwrite(&k, sizeof(INT4), 1, Fout.file);
-    for (j=0; j<NumPolluts; j++)
-    {
-        k = NODE_QUAL + j;
-        fwrite(&k, sizeof(INT4), 1, Fout.file);
-    }
-
-    // --- save number & codes of link result variables
-    k = NumLinkVars;
-    fwrite(&k, sizeof(INT4), 1, Fout.file);
-    k = LINK_FLOW;
-    fwrite(&k, sizeof(INT4), 1, Fout.file);
-    k = LINK_DEPTH;
-    fwrite(&k, sizeof(INT4), 1, Fout.file);
-    k = LINK_VELOCITY;
-    fwrite(&k, sizeof(INT4), 1, Fout.file);
-    k = LINK_VOLUME;
-    fwrite(&k, sizeof(INT4), 1, Fout.file);
-    k = LINK_CAPACITY;
-    fwrite(&k, sizeof(INT4), 1, Fout.file);
-    for (j=0; j<NumPolluts; j++)
-    {
-        k = LINK_QUAL + j;
-        fwrite(&k, sizeof(INT4), 1, Fout.file);
-    }
-
-    // --- save number & codes of system result variables
-    k = MAX_SYS_RESULTS;
-    fwrite(&k, sizeof(INT4), 1, Fout.file);
-    for (k=0; k<MAX_SYS_RESULTS; k++) fwrite(&k, sizeof(INT4), 1, Fout.file);
-
-    // --- save starting report date & report step
-    //     (if reporting start date > simulation start date then
-    //      make saved starting report date one reporting period
-    //      prior to the date of the first reported result)
-    z = (double)ReportStep/86400.0;
-    if ( StartDateTime + z > ReportStart ) z = StartDateTime;
-    else
-    {
-        z = floor((ReportStart - StartDateTime)/z) - 1.0;
-        z = StartDateTime + z*(double)ReportStep/86400.0;
-    }
-    fwrite(&z, sizeof(REAL8), 1, Fout.file);
-    k = ReportStep;
-    if ( fwrite(&k, sizeof(INT4), 1, Fout.file) < 1)
-    {
-        report_writeErrorMsg(ERR_OUT_WRITE, "");
-        return ErrorCode;
-    }
-    OutputStartPos = ftell(Fout.file);
-    if ( Fout.mode == SCRATCH_FILE ) output_checkFileSize();
+    ErrorCode = OutIface_init();
     return ErrorCode;
-}
 
-//=============================================================================
-
-void  output_checkFileSize()
-//
-//  Input:   none
-//  Output:  none
-//  Purpose: checks if the size of the binary output file will be too big
-//           to access using an integer file pointer variable.
-//
-{
-    if ( RptFlags.subcatchments != NONE ||
-         RptFlags.nodes != NONE ||
-         RptFlags.links != NONE )
-    {
-        if ( (double)OutputStartPos + (double)BytesPerPeriod * TotalDuration
-             / 1000.0 / (double)ReportStep >= (double)MAXFILESIZE )
-        {
-            report_writeErrorMsg(ERR_FILE_SIZE, "");
-        }
-    }
 }
 
 
-//=============================================================================
-
-void output_openOutFile()
-//
-//  Input:   none
-//  Output:  none
-//  Purpose: opens a project's binary output file.
-//
-{
-    // --- close output file if already opened
-    if (Fout.file != NULL) fclose(Fout.file); 
-
-    // --- else if file name supplied then set file mode to SAVE
-    else if (strlen(Fout.name) != 0) Fout.mode = SAVE_FILE;
-
-    // --- otherwise set file mode to SCRATCH & generate a name
-    else
-    {
-        Fout.mode = SCRATCH_FILE;
-        getTempFileName(Fout.name);
-    }
-
-    // --- try to open the file
-    if ( (Fout.file = fopen(Fout.name, "w+b")) == NULL)
-    {
-        writecon(FMT14);
-        ErrorCode = ERR_OUT_FILE;
-    }
-}
 
 //=============================================================================
 
@@ -456,30 +252,28 @@ void output_saveResults(double reportTime)
     int i;
     extern TRoutingTotals StepFlowTotals;  // defined in massbal.c             //(5.1.013)
     DateTime reportDate = getDateTime(reportTime);
-    REAL8 date;
+    // REAL8 date;
 
     // --- initialize system-wide results
     if ( reportDate < ReportStart ) return;
     for (i=0; i<MAX_SYS_RESULTS; i++) SysResults[i] = 0.0f;
 
     // --- save date corresponding to this elapsed reporting time
-    date = reportDate;
-    fwrite(&date, sizeof(REAL8), 1, Fout.file);
-
+    if (outfile_type==0) bin_saveDate(reportDate,Fout);
     // --- save subcatchment results
     if (Nobjects[SUBCATCH] > 0)
-        output_saveSubcatchResults(reportTime, Fout.file);
+        output_saveSubcatchResults(reportTime, Fout);
 
     // --- save average routing results over reporting period if called for    //(5.1.013)
-    if ( RptFlags.averages ) output_saveAvgResults(Fout.file);                 //
+    if ( RptFlags.averages ) output_saveAvgResults(reportTime,Fout);                 //
 
     // --- otherwise save interpolated point routing results                   //(5.1.013)
     else                                                                       //
     {
         if (Nobjects[NODE] > 0)
-            output_saveNodeResults(reportTime, Fout.file);
+            output_saveNodeResults(reportTime, Fout);
         if (Nobjects[LINK] > 0)
-            output_saveLinkResults(reportTime, Fout.file);
+            output_saveLinkResults(reportTime, Fout);
     }
 
     // --- update & save system-wide flows 
@@ -494,7 +288,8 @@ void output_saveResults(double reportTime)
                              SysResults[SYS_GWFLOW] +
                              SysResults[SYS_IIFLOW] +
                              SysResults[SYS_EXFLOW];
-    fwrite(SysResults, sizeof(REAL4), MAX_SYS_RESULTS, Fout.file);
+
+    OutIface_saveSysResults(getDateTime(reportTime),Fout);
 
     // --- save outfall flows to interface file if called for
     if ( Foutflows.mode == SAVE_FILE && !IgnoreRouting ) 
@@ -508,22 +303,11 @@ void output_end()
 //
 //  Input:   none
 //  Output:  none
-//  Purpose: writes closing records to binary file.
+//  Purpose: writes closing records to binary file if using binary format.
 //
 {
-    INT4 k;
-    fwrite(&IDStartPos, sizeof(INT4), 1, Fout.file);
-    fwrite(&InputStartPos, sizeof(INT4), 1, Fout.file);
-    fwrite(&OutputStartPos, sizeof(INT4), 1, Fout.file);
-    k = Nperiods;
-    fwrite(&k, sizeof(INT4), 1, Fout.file);
-    k = (INT4)error_getCode(ErrorCode);
-    fwrite(&k, sizeof(INT4), 1, Fout.file);
-    k = MAGICNUMBER;
-    if (fwrite(&k, sizeof(INT4), 1, Fout.file) < 1)
-    {
-        report_writeErrorMsg(ERR_OUT_WRITE, "");
-    }
+    // bin_output_end();
+    OutIface_output_end();
 }
 
 //=============================================================================
@@ -532,38 +316,26 @@ void output_close()
 //
 //  Input:   none
 //  Output:  none
-//  Purpose: frees memory used for accessing the binary file.
+//  Purpose: frees memory used for accessing model results and closes sql session if using sqlite format
 //
 {
     FREE(SubcatchResults);
     FREE(NodeResults);
     FREE(LinkResults);
-    output_closeAvgResults();                                                  //(5.1.013)
+    output_closeAvgResults();   
+    OutIface_output_close();
+                                                  //(5.1.013)
 }
+
 
 //=============================================================================
 
-void output_saveID(char* id, FILE* file)
-//
-//  Input:   id = name of an object
-//           file = ptr. to binary output file
-//  Output:  none
-//  Purpose: writes an object's name to the binary output file.
-//
-{
-    INT4 n = strlen(id);
-    fwrite(&n, sizeof(INT4), 1, file);
-    fwrite(id, sizeof(char), n, file);
-}
-
-//=============================================================================
-
-void output_saveSubcatchResults(double reportTime, FILE* file)
+void output_saveSubcatchResults(double reportTime, TFile Fout)
 //
 //  Input:   reportTime = elapsed simulation time (millisec)
-//           file = ptr. to binary output file
+//           Fout = output file struct
 //  Output:  none
-//  Purpose: writes computed subcatchment results to binary file.
+//  Purpose: writes computed subcatchment results to output file.
 //
 {
     int      j;
@@ -586,9 +358,9 @@ void output_saveSubcatchResults(double reportTime, FILE* file)
     {
         // --- retrieve interpolated results for reporting time & write to file
         subcatch_getResults(j, f, SubcatchResults);
-        if ( Subcatch[j].rptFlag )
-            fwrite(SubcatchResults, sizeof(REAL4), NumSubcatchVars, file);
-
+        if ( Subcatch[j].rptFlag ){
+            OutIface_saveSubcatchResults(Subcatch[j].ID,reportDate,Fout);
+        }
         // --- update system-wide results
         area = Subcatch[j].area * UCF(LANDAREA);
         totalArea += (REAL4)area;
@@ -627,12 +399,12 @@ void output_saveSubcatchResults(double reportTime, FILE* file)
 
 ////  This function was re-written for release 5.1.013.  ////                  //(5.1.013)
 
-void output_saveNodeResults(double reportTime, FILE* file)
+void output_saveNodeResults(double reportTime, TFile Fout)
 //
 //  Input:   reportTime = elapsed simulation time (millisec)
-//           file = ptr. to binary output file
+//           Fout = output file struct
 //  Output:  none
-//  Purpose: writes computed node results to binary file.
+//  Purpose: writes computed node results to output file.
 //
 {
     int j;
@@ -647,7 +419,8 @@ void output_saveNodeResults(double reportTime, FILE* file)
         // --- retrieve interpolated results for reporting time & write to file
         node_getResults(j, f, NodeResults);
         if ( Node[j].rptFlag )
-            fwrite(NodeResults, sizeof(REAL4), NumNodeVars, file);
+            OutIface_saveNodeResults(Node[j].ID,getDateTime(reportTime),Fout);
+
         stats_updateMaxNodeDepth(j, NodeResults[NODE_DEPTH]);
 
         // --- update system-wide storage volume 
@@ -657,12 +430,12 @@ void output_saveNodeResults(double reportTime, FILE* file)
 
 //=============================================================================
 
-void output_saveLinkResults(double reportTime, FILE* file)
+void output_saveLinkResults(double reportTime,  TFile Fout)
 //
 //  Input:   reportTime = elapsed simulation time (millisec)
-//           file = ptr. to binary output file
+//           Fout = output file struct
 //  Output:  none
-//  Purpose: writes computed link results to binary file.
+//  Purpose: writes computed link results to output file.
 //
 {
     int j;
@@ -679,7 +452,7 @@ void output_saveLinkResults(double reportTime, FILE* file)
         if (Link[j].rptFlag)
         {
             link_getResults(j, f, LinkResults);
-            fwrite(LinkResults, sizeof(REAL4), NumLinkVars, file);
+            OutIface_saveLinkResults(Link[j].ID,getDateTime(reportTime),Fout);
         }
 
         // --- update system-wide results
@@ -688,74 +461,7 @@ void output_saveLinkResults(double reportTime, FILE* file)
     }
 }
 
-//=============================================================================
 
-void output_readDateTime(int period, DateTime* days)
-//
-//  Input:   period = index of reporting time period
-//  Output:  days = date/time value
-//  Purpose: retrieves the date/time for a specific reporting period
-//           from the binary output file.
-//
-{
-    INT4 bytePos = OutputStartPos + (period-1)*BytesPerPeriod;
-    fseek(Fout.file, bytePos, SEEK_SET);
-    *days = NO_DATE;
-    fread(days, sizeof(REAL8), 1, Fout.file);
-}
-
-//=============================================================================
-
-void output_readSubcatchResults(int period, int index)
-//
-//  Input:   period = index of reporting time period
-//           index = subcatchment index
-//  Output:  none
-//  Purpose: reads computed results for a subcatchment at a specific time
-//           period.
-//
-{
-    INT4 bytePos = OutputStartPos + (period-1)*BytesPerPeriod;
-    bytePos += sizeof(REAL8) + index*NumSubcatchVars*sizeof(REAL4);
-    fseek(Fout.file, bytePos, SEEK_SET);
-    fread(SubcatchResults, sizeof(REAL4), NumSubcatchVars, Fout.file);
-}
-
-//=============================================================================
-
-void output_readNodeResults(int period, int index)
-//
-//  Input:   period = index of reporting time period
-//           index = node index
-//  Output:  none
-//  Purpose: reads computed results for a node at a specific time period.
-//
-{
-    INT4 bytePos = OutputStartPos + (period-1)*BytesPerPeriod;
-    bytePos += sizeof(REAL8) + NumSubcatch*NumSubcatchVars*sizeof(REAL4);
-    bytePos += index*NumNodeVars*sizeof(REAL4);
-    fseek(Fout.file, bytePos, SEEK_SET);
-    fread(NodeResults, sizeof(REAL4), NumNodeVars, Fout.file);
-}
-
-//=============================================================================
-
-void output_readLinkResults(int period, int index)
-//
-//  Input:   period = index of reporting time period
-//           index = link index
-//  Output:  none
-//  Purpose: reads computed results for a link at a specific time period.
-//
-{
-    INT4 bytePos = OutputStartPos + (period-1)*BytesPerPeriod;
-    bytePos += sizeof(REAL8) + NumSubcatch*NumSubcatchVars*sizeof(REAL4);
-    bytePos += NumNodes*NumNodeVars*sizeof(REAL4);
-    bytePos += index*NumLinkVars*sizeof(REAL4);
-    fseek(Fout.file, bytePos, SEEK_SET);
-    fread(LinkResults, sizeof(REAL4), NumLinkVars, Fout.file);
-    fread(SysResults, sizeof(REAL4), MAX_SYS_RESULTS, Fout.file);
-}
 
 ////  The following functions were added for release 5.1.013.  ////            //(5.1.013)
 
@@ -903,7 +609,7 @@ void output_updateAvgResults()
 
 //=============================================================================
 
-void output_saveAvgResults(FILE* file)
+void output_saveAvgResults(double reportTime,  TFile Fout)
 {
     int i, j;
 
@@ -917,7 +623,7 @@ void output_saveAvgResults(FILE* file)
         }
 
         // --- save average results to file
-        fwrite(NodeResults, sizeof(REAL4), NumNodeVars, file);
+        OutIface_saveNodeResults(Node[j].ID,getDateTime(reportTime),Fout);
     }
 
     // --- update each node's max depth and contribution to system storage
@@ -937,7 +643,7 @@ void output_saveAvgResults(FILE* file)
         }
 
         // --- save average results to file
-        fwrite(LinkResults, sizeof(REAL4), NumLinkVars, file);
+        OutIface_saveLinkResults(Link[j].ID,getDateTime(reportTime),Fout);
     }
  
     // --- add each link's volume to total system storage

@@ -261,6 +261,11 @@ void datetime_dateToStr(DateTime date, char* s)
         //sprintf(dateStr, "%3s-%02d-%4d", MonthTxt[m-1], d, y);
         sprintf(dateStr, "%02d/%02d/%04d", m, d, y);
         break;
+      
+      case ISO:
+        
+        sprintf(dateStr, "%04d-%02d-%02d", y, m, d);
+        break;
 
       default:
         sprintf(dateStr, "%02d-%3s-%4d", d, MonthTxt[m-1], y);
@@ -378,7 +383,7 @@ void datetime_setDateFormat(int fmt)
 //  Purpose: sets date format
 
 {
-    if ( fmt >= Y_M_D && fmt <= M_D_Y) DateFormat = fmt;
+    if ( fmt >= Y_M_D && fmt <= ISO) DateFormat = fmt;
 }
 
 //=============================================================================
@@ -525,7 +530,7 @@ void datetime_getTimeStamp(int fmt, DateTime aDate, int stampSize, char* timeSta
     int  oldDateFormat = DateFormat;
     
     if ( stampSize < DATE_STR_SIZE + TIME_STR_SIZE + 2 ) return;
-    datetime_setDateFormat(fmt);     
+    datetime_setDateFormat(fmt);  
     datetime_dateToStr(aDate, dateStr);
     DateFormat = oldDateFormat;
     datetime_timeToStr(aDate, timeStr);
