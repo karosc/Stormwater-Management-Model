@@ -102,7 +102,7 @@ jobs:
         if: ${{ runner.os == 'Windows' }}
         with:
           arch: amd64
-          toolset: 14.40.33807
+          toolset: 14.36.32532
           
       - name: Setup python
         uses: actions/setup-python@v4
