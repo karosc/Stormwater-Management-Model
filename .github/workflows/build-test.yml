@@ -96,8 +96,14 @@ jobs:
         with:
           repository: pyswmm/ci-tools
           ref: master
-          path: ci-tools
-
+          path: ci-tools   
+      
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: ${{ runner.os == 'Windows' }}
+        with:
+          arch: amd64
+          toolset: 14.40.33807
+          
       - name: Setup python
         uses: actions/setup-python@v4
         with:
@@ -131,7 +137,8 @@ jobs:
             # OPTIONAL: Specify a toolset
             toolset: ${{ matrix.boost_toolset }}
 
-      - name: Build and unit test
+
+      - name: Build and unit test        
         env:
             BOOST_ROOT_1_81_0: ${{ steps.install-boost.outputs.BOOST_ROOT }}
         run: ./${{ matrix.build_unit_test }}
