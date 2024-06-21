@@ -106,6 +106,8 @@ jobs:
           echo making dir
           mkdir {{ matrix.docker.cache_path }}
           echo saving image
+          echo {{ matrix.docker.cache_path }}:{{ matrix.docker.image }}
+          echo {{ matrix.docker.cache_path }}{{ matrix.docker.image }}-{{ matrix.docker.image_tag }}.tar
           docker image save {{ matrix.docker.cache_path }}:{{ matrix.docker.image }} --output {{ matrix.docker.cache_path }}{{ matrix.docker.image }}-{{ matrix.docker.image_tag }}.tar
 
       - name: Use Image Cache if cache hit
