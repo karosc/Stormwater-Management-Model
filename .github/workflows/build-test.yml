@@ -37,7 +37,7 @@ jobs:
                 image: pyswmm/build_swmm
                 image_tag: win64-24.6.1
                 mount_dir: c:\swmm\
-                cache_path: C:\docker_cache\
+                cache_path: ${{ github.workspace }}\docker_cache\
 
             defaults:
               run:
@@ -59,7 +59,7 @@ jobs:
               image_tag: linux-gnu-24.6.1
               working-directory: ci-tools/linux
               mount_dir: /root/swmm/
-              cache_path: /docker_cache/
+              cache_path: ${{ github.workspace }}/docker_cache/
             defaults:
               run:
                 shell: bash
