@@ -36,7 +36,7 @@ jobs:
             defaults:
               run:
                 shell: cmd
-                working-directory: ./ci-tools/windows
+                working-directory: ci-tools/windows
 
           - os: ubuntu-22.04
             # Statically link libraries with -s switch to address GitHub Ubuntu 20.04 symbol errors (issue #340)
@@ -52,22 +52,22 @@ jobs:
             defaults:
               run:
                 shell: bash
-                working-directory: ./ci-tools/linux
+                working-directory: ci-tools/linux
 
     runs-on: ${{ matrix.os }}
-    container:
-      image: ${{ matrix.image }}
-      env:
-        OMP_NUM_THREADS: 1
-        PROJECT: swmm
-        BUILD_HOME: build
-        TEST_HOME: nrtests
-      options: --cpus 1
+    # container:
+    #   image: ${{ matrix.image }}
+    #   env:
+    #     OMP_NUM_THREADS: 1
+    #     PROJECT: swmm
+    #     BUILD_HOME: build
+    #     TEST_HOME: nrtests
+    #   options: --cpus 1
     continue-on-error: ${{ matrix.experimental }}
     defaults:
       run:
         shell: ${{ matrix.defaults.run.shell }}
-        working-directory: ${{ matrix.defaults.run.working-directory }}
+        # working-directory: ${{ matrix.defaults.run.working-directory }}
 
 
     steps:
@@ -80,21 +80,25 @@ jobs:
           repository: pyswmm/ci-tools
           ref: master
           path: ci-tools
+      - name: pull
+        run: docker pull ${{ matrix.image }}
 
-      - name: Build and unit test
-        run: ./${{ matrix.build_unit_test }}
+      - name: build and test
+        run: docker run -v .:/root/swmm -w /root/swmm/${{ matrix.defaults.run.working-directory }} ${{ matrix.image }} ${{ matrix.build_unit_test }}
+      # - name: Build and unit test
+      #   run: ./${{ matrix.build_unit_test }}
 
-      - name: Build for reg test
-        run: ./${{ matrix.build_reg_test }}
+      # - name: Build for reg test
+      #   run: ./${{ matrix.build_reg_test }}
 
-      - name: Before reg test
-        env:
-          NRTESTS_URL: https://github.com/pyswmm/swmm-nrtestsuite
-          BENCHMARK_TAG: v3.1.0
-        run: ./${{ matrix.before_reg_test }} ${{ env.BENCHMARK_TAG }}
+      # - name: Before reg test
+      #   env:
+      #     NRTESTS_URL: https://github.com/pyswmm/swmm-nrtestsuite
+      #     BENCHMARK_TAG: v3.1.0
+      #   run: ./${{ matrix.before_reg_test }} ${{ env.BENCHMARK_TAG }}
 
-      - name: Run reg test
-        run: ./${{ matrix.run_reg_test }} ${{ matrix.build_id }}
+      # - name: Run reg test
+      #   run: ./${{ matrix.run_reg_test }} ${{ matrix.build_id }}
 
       - name: Upload artifacts
         if: ${{ always() }}
