@@ -104,15 +104,15 @@ jobs:
         run: |
           docker pull ${{ matrix.docker.image }}:${{ matrix.docker.image_tag }}
           echo making dir
-          mkdir {{ matrix.docker.cache_path }}
+          mkdir ${{ matrix.docker.cache_path }}
           echo saving image
-          echo {{ matrix.docker.cache_path }}:{{ matrix.docker.image }}
-          echo {{ matrix.docker.cache_path }}{{ matrix.docker.image }}-{{ matrix.docker.image_tag }}.tar
-          docker image save {{ matrix.docker.cache_path }}:{{ matrix.docker.image }} --output {{ matrix.docker.cache_path }}{{ matrix.docker.image }}-{{ matrix.docker.image_tag }}.tar
+          echo ${{ matrix.docker.cache_path }}:${{ matrix.docker.image }}
+          echo ${{ matrix.docker.cache_path }}${{ matrix.docker.image }}-${{ matrix.docker.image_tag }}.tar
+          docker image save ${{ matrix.docker.cache_path }}:${{ matrix.docker.image }} --output ${{ matrix.docker.cache_path }}${{ matrix.docker.image }}-${{ matrix.docker.image_tag }}.tar
 
       - name: Use Image Cache if cache hit
         if: steps.cache-docker-build-swmm.outputs.cache-hit == 'true'
-        run: docker image load --input {{ matrix.docker.cache_path }}{{ matrix.docker.image }}-{{ matrix.docker.image_tag }}.tar
+        run: docker image load --input ${{ matrix.docker.cache_path }}${{ matrix.docker.image }}-${{ matrix.docker.image_tag }}.tar
 
       - name: build and test
         run: docker run -v .:${{ matrix.docker.mount_dir }} -w ${{ matrix.docker.mount_dir }}${{ matrix.docker.working-directory }} ${{ matrix.docker.image }}:${{ matrix.docker.image_tag }} ${{ matrix.build_unit_test }}
