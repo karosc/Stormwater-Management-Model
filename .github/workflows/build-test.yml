@@ -102,7 +102,7 @@ jobs:
       - name: Update Image Cache if cache miss
         if: steps.cache-docker-build-swmm.outputs.cache-hit != 'true'
         run: |
-          docker pull  
+          docker pull ${{ matrix.docker.image }}:${{ matrix.docker.image_tag }} ${{ matrix.build_unit_test }}
           mkdir -p {{ matrix.docker.cache_path }}
           docker image save {{ matrix.docker.cache_path }}:{{ matrix.docker.image }} --output {{ matrix.docker.cache_path }}{{ matrix.docker.image }}-{{ matrix.docker.image_tag }}.tar
 
