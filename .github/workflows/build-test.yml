@@ -37,7 +37,7 @@ jobs:
                 image: pyswmm/build_swmm
                 image_tag: win64-24.6.1
                 mount_dir: c:\swmm\
-                cache_path: ${{ github.workspace }}\docker_cache\
+                mk_cache_path: mkdir c:\docker_cache\
 
             defaults:
               run:
@@ -59,7 +59,7 @@ jobs:
               image_tag: linux-gnu-24.6.1
               working-directory: ci-tools/linux
               mount_dir: /root/swmm/
-              cache_path: ${{ github.workspace }}/docker_cache/
+              mk_cache_path: sudo mkdir /docker_cache/
             defaults:
               run:
                 shell: bash
@@ -104,7 +104,7 @@ jobs:
         run: |
           docker pull ${{ matrix.docker.image }}:${{ matrix.docker.image_tag }}
           echo making dir
-          mkdir ${{ matrix.docker.cache_path }}
+          ${{ matrix.docker.mk_cache_path }}
           echo saving image
           echo ${{ matrix.docker.cache_path }}:${{ matrix.docker.image }}
           echo ${{ matrix.docker.cache_path }}${{ matrix.docker.image }}-${{ matrix.docker.image_tag }}.tar
