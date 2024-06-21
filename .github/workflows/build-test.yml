@@ -38,6 +38,7 @@ jobs:
                 image_tag: win64-24.6.1
                 mount_dir: c:\swmm\
                 mk_cache_path: mkdir c:\docker_cache\
+                cache_path: c:\docker_cache\
 
             defaults:
               run:
@@ -60,6 +61,7 @@ jobs:
               working-directory: ci-tools/linux
               mount_dir: /root/swmm/
               mk_cache_path: sudo mkdir /docker_cache/
+              cache_path: /docker_cache/
             defaults:
               run:
                 shell: bash
