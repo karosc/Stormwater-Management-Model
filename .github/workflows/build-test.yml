@@ -97,7 +97,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ci/cache/docker/build_swmm
-          key: ${{ runner.os }}-cache-docker-${{ matrix.docker.image }}-${{ matrix.docker.image_tag }}
+          key: ${{ runner.os }}-cache-docker-build_swmm-${{ matrix.docker.image_tag }}
             
       - name: Update Image Cache if cache miss
         if: steps.cache-docker-build-swmm.outputs.cache-hit != 'true'
@@ -105,14 +105,12 @@ jobs:
           docker pull ${{ matrix.docker.image }}:${{ matrix.docker.image_tag }}
           echo making dir
           ${{ matrix.docker.mk_cache_path }}
-          echo saving image
-          echo ${{ matrix.docker.cache_path }}:${{ matrix.docker.image }}
-          echo ${{ matrix.docker.cache_path }}${{ matrix.docker.image }}-${{ matrix.docker.image_tag }}.tar
-          docker image save ${{ matrix.docker.cache_path }}:${{ matrix.docker.image }} --output ${{ matrix.docker.cache_path }}${{ matrix.docker.image }}-${{ matrix.docker.image_tag }}.tar
+          echo saving image ${{ matrix.docker.image }}:${{ matrix.docker.image }} to ${{ matrix.docker.cache_path }}build_swmm-${{ matrix.docker.image_tag }}.tar
+          docker image save ${{ matrix.docker.image }}:${{ matrix.docker.image }} --output ${{ matrix.docker.cache_path }}build_swmm-${{ matrix.docker.image_tag }}.tar
 
       - name: Use Image Cache if cache hit
         if: steps.cache-docker-build-swmm.outputs.cache-hit == 'true'
-        run: docker image load --input ${{ matrix.docker.cache_path }}${{ matrix.docker.image }}-${{ matrix.docker.image_tag }}.tar
+        run: docker image load --input ${{ matrix.docker.cache_path }}build_swmm-${{ matrix.docker.image_tag }}.tar
 
       - name: build and test
         run: docker run -v .:${{ matrix.docker.mount_dir }} -w ${{ matrix.docker.mount_dir }}${{ matrix.docker.working-directory }} ${{ matrix.docker.image }}:${{ matrix.docker.image_tag }} ${{ matrix.build_unit_test }}
