@@ -35,7 +35,7 @@ jobs:
             docker:
                 working-directory: ci-tools/windows
                 image: pyswmm/build_swmm
-                image_tag: win64-24.6.2
+                image_tag: win64-24.6.1
                 mount_dir: c:\swmm\
                 cache_path: C:\docker_cache\
 
@@ -103,7 +103,9 @@ jobs:
         if: steps.cache-docker-build-swmm.outputs.cache-hit != 'true'
         run: |
           docker pull ${{ matrix.docker.image }}:${{ matrix.docker.image_tag }}
-          mkdir -p {{ matrix.docker.cache_path }}
+          echo making dir
+          mkdir {{ matrix.docker.cache_path }}
+          echo saving image
           docker image save {{ matrix.docker.cache_path }}:{{ matrix.docker.image }} --output {{ matrix.docker.cache_path }}{{ matrix.docker.image }}-{{ matrix.docker.image_tag }}.tar
 
       - name: Use Image Cache if cache hit
