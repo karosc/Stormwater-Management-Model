@@ -32,11 +32,17 @@ jobs:
             experimental: false
             artifacts_ext: zip
             artifact_content_type: zip
-            image: pyswmm/build_swmm:win64-24.6.1
+            docker:
+                working-directory: ci-tools/windows
+                image: pyswmm/build_swmm
+                image_tag: win64-24.6.2
+                mount_dir: c:\swmm\
+                cache_path: C:\docker_cache\
+
             defaults:
               run:
-                shell: cmd
                 working-directory: ci-tools/windows
+                shell: cmd
 
           - os: ubuntu-22.04
             # Statically link libraries with -s switch to address GitHub Ubuntu 20.04 symbol errors (issue #340)
@@ -48,7 +54,12 @@ jobs:
             experimental: true
             artifacts_ext: tar.gz
             artifact_content_type: tar
-            image: pyswmm/build_swmm:linux-gnu-24.6.1
+            docker:
+              image: pyswmm/build_swmm
+              image_tag: linux-gnu-24.6.1
+              working-directory: ci-tools/linux
+              mount_dir: /root/swmm/
+              cache_path: /docker_cache/
             defaults:
               run:
                 shell: bash
@@ -80,11 +91,27 @@ jobs:
           repository: pyswmm/ci-tools
           ref: master
           path: ci-tools
-      - name: pull
-        run: docker pull ${{ matrix.image }}
+
+      - name: Cache Docker layers
+        id: cache-docker-build-swmm
+        uses: actions/cache@v4
+        with:
+          path: ci/cache/docker/build_swmm
+          key: ${{ runner.os }}-cache-docker-${{ matrix.docker.image }}-${{ matrix.docker.image_tag }}
+            
+      - name: Update Image Cache if cache miss
+        if: steps.cache-docker-build-swmm.outputs.cache-hit != 'true'
+        run: |
+          docker pull  
+          mkdir -p {{ matrix.docker.cache_path }}
+          docker image save {{ matrix.docker.cache_path }}:{{ matrix.docker.image }} --output {{ matrix.docker.cache_path }}{{ matrix.docker.image }}-{{ matrix.docker.image_tag }}.tar
+
+      - name: Use Image Cache if cache hit
+        if: steps.cache-docker-build-swmm.outputs.cache-hit == 'true'
+        run: docker image load --input {{ matrix.docker.cache_path }}{{ matrix.docker.image }}-{{ matrix.docker.image_tag }}.tar
 
       - name: build and test
-        run: docker run -v .:/root/swmm -w /root/swmm/${{ matrix.defaults.run.working-directory }} ${{ matrix.image }} ${{ matrix.build_unit_test }}
+        run: docker run -v .:${{ matrix.docker.mount_dir }} -w ${{ matrix.docker.mount_dir }}${{ matrix.docker.working-directory }} ${{ matrix.docker.image }}:${{ matrix.docker.image_tag }} ${{ matrix.build_unit_test }}
       # - name: Build and unit test
       #   run: ./${{ matrix.build_unit_test }}
 
