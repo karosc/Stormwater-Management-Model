@@ -22,6 +22,8 @@ else()
     )
 endif()
 
+find_package (SQLite3)
+
 # Generate version header
 include(
     ../../extern/version.cmake
@@ -87,6 +89,14 @@ target_link_libraries(swmm5
         $<$<NOT:$<BOOL:$<C_COMPILER_ID:MSVC>>>:m>
         $<$<TARGET_EXISTS:OpenMP::OpenMP_C>:OpenMP::OpenMP_C>
 )
+
+include_directories(
+    ${SQLite3_INCLUDE_DIRS}
+    )
+    
+target_link_libraries (swmm5 
+PUBLIC
+${SQLite3_LIBRARIES})
 
 target_include_directories(swmm5
     PUBLIC
