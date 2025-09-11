@@ -15,7 +15,7 @@
 #include "headers.h"
 #include "version.h"
 #include "output.h"
-
+#include <string.h>
 
 static void output_openOutFile(void);
 static void output_saveID(char* id, FILE* file);

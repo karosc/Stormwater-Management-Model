@@ -3,7 +3,7 @@
 #include "headers.h"
 #include "version.h"
 #include "output.h"
-
+#include <string.h>
 // local variable for doing sql inserts
 sqlite3 *db;
 int  rc;
