@@ -1,3 +1,15 @@
+
+#define _CRT_SECURE_NO_DEPRECATE
+
+// Large File Support
+#ifdef _MSC_VER    // Windows (32-bit and 64-bit)
+  #define F_OFF __int64
+  #define F_SEEK _fseeki64
+#else              // Other platforms
+  #define F_OFF off_t
+  #define F_SEEK fseeko
+#endif
+
 #include <math.h>
 
 #include "headers.h"
@@ -14,25 +26,25 @@ enum InputDataType {INPUT_TYPE_CODE, INPUT_AREA, INPUT_INVERT, INPUT_MAX_DEPTH,
 
 //=============================================================================
 
-void  output_checkFileSize()
-//
-//  Input:   none
-//  Output:  none
-//  Purpose: checks if the size of the binary output file will be too big
-//           to access using an integer file pointer variable.
-//
-{
-    if ( RptFlags.subcatchments != NONE ||
-         RptFlags.nodes != NONE ||
-         RptFlags.links != NONE )
-    {
-        if ( (double)OutputStartPos + (double)BytesPerPeriod * TotalDuration
-             / 1000.0 / (double)ReportStep >= (double)MAXFILESIZE )
-        {
-            report_writeErrorMsg(ERR_FILE_SIZE, "");
-        }
-    }
-}
+// void  output_checkFileSize()
+// //
+// //  Input:   none
+// //  Output:  none
+// //  Purpose: checks if the size of the binary output file will be too big
+// //           to access using an integer file pointer variable.
+// //
+// {
+//     if ( RptFlags.subcatchments != NONE ||
+//          RptFlags.nodes != NONE ||
+//          RptFlags.links != NONE )
+//     {
+//         if ( (double)OutputStartPos + (double)BytesPerPeriod * TotalDuration
+//              / 1000.0 / (double)ReportStep >= (double)MAXFILESIZE )
+//         {
+//             report_writeErrorMsg(ERR_FILE_SIZE, "");
+//         }
+//     }
+// }
 
 
 void output_saveID(char* id, FILE* file)
@@ -302,7 +314,7 @@ int output_out_init(){
         return ErrorCode;
     }
     OutputStartPos = ftell(Fout.file);
-    if ( Fout.mode == SCRATCH_FILE ) output_checkFileSize();
+    // if ( Fout.mode == SCRATCH_FILE ) output_checkFileSize();
     return ErrorCode;
 }
 
@@ -348,7 +360,7 @@ void bin_output_end()
     fwrite(&OutputStartPos, sizeof(INT4), 1, Fout.file);
     k = Nperiods;
     fwrite(&k, sizeof(INT4), 1, Fout.file);
-    k = (INT4)error_getCode(ErrorCode);
+    k = (INT4)ErrorCode;
     fwrite(&k, sizeof(INT4), 1, Fout.file);
     k = MAGICNUMBER;
     if (fwrite(&k, sizeof(INT4), 1, Fout.file) < 1)
@@ -356,6 +368,7 @@ void bin_output_end()
         report_writeErrorMsg(ERR_OUT_WRITE, "");
     }
 }
+
 
 void bin_output_close(){
     if ( Fout.file != NULL )
@@ -365,17 +378,11 @@ void bin_output_close(){
     }
 }
 
-void bin_readSubcatchResults(int period, int index){
-    INT4 bytePos = OutputStartPos + (period-1)*BytesPerPeriod;
-    bytePos += sizeof(REAL8) + index*NumSubcatchVars*sizeof(REAL4);
-    fseek(Fout.file, bytePos, SEEK_SET);
-    fread(SubcatchResults, sizeof(REAL4), NumSubcatchVars, Fout.file);
-}
 
 
 //=============================================================================
 
-void output_readDateTime(int period, DateTime* days)
+void output_readDateTime(long period, DateTime* days)
 //
 //  Input:   period = index of reporting time period
 //  Output:  days = date/time value
@@ -383,61 +390,65 @@ void output_readDateTime(int period, DateTime* days)
 //           from the binary output file.
 //
 {
-    INT4 bytePos = OutputStartPos + (period-1)*BytesPerPeriod;
-    fseek(Fout.file, bytePos, SEEK_SET);
+    F_OFF p = period;
+    F_OFF bytePos = OutputStartPos + (p-1)*BytesPerPeriod;
+    F_SEEK(Fout.file, bytePos, SEEK_SET);
     *days = NO_DATE;
     fread(days, sizeof(REAL8), 1, Fout.file);
 }
 
 //=============================================================================
 
-void output_readSubcatchResults(int period, int index)
+void output_readSubcatchResults(long period, int index)
 //
 //  Input:   period = index of reporting time period
-//           index = subcatchment index
+//           index = subcatchment index in binary output file
 //  Output:  none
 //  Purpose: reads computed results for a subcatchment at a specific time
 //           period.
 //
 {
-    INT4 bytePos = OutputStartPos + (period-1)*BytesPerPeriod;
-    bytePos += sizeof(REAL8) + index*NumSubcatchVars*sizeof(REAL4);
-    fseek(Fout.file, bytePos, SEEK_SET);
+    long offset = index*NumSubcatchVars;
+    F_OFF p = period;
+    F_OFF bytePos = OutputStartPos + (p-1)*BytesPerPeriod +
+        sizeof(REAL8) + (F_OFF)offset * sizeof(REAL4);
+    F_SEEK(Fout.file, bytePos, SEEK_SET);
     fread(SubcatchResults, sizeof(REAL4), NumSubcatchVars, Fout.file);
 }
 
 //=============================================================================
 
-void output_readNodeResults(int period, int index)
+void output_readNodeResults(long period, int index)
 //
 //  Input:   period = index of reporting time period
-//           index = node index
+//           index = node index in binary output file
 //  Output:  none
 //  Purpose: reads computed results for a node at a specific time period.
 //
 {
-    INT4 bytePos = OutputStartPos + (period-1)*BytesPerPeriod;
-    bytePos += sizeof(REAL8) + NumSubcatch*NumSubcatchVars*sizeof(REAL4);
-    bytePos += index*NumNodeVars*sizeof(REAL4);
-    fseek(Fout.file, bytePos, SEEK_SET);
+    long offset = NumSubcatch*NumSubcatchVars + index*NumNodeVars;
+    F_OFF p = period;
+    F_OFF bytePos = OutputStartPos + (p-1)*BytesPerPeriod +
+        sizeof(REAL8) + (F_OFF)offset * sizeof(REAL4);
+    F_SEEK(Fout.file, bytePos, SEEK_SET);
     fread(NodeResults, sizeof(REAL4), NumNodeVars, Fout.file);
 }
 
 //=============================================================================
 
-void output_readLinkResults(int period, int index)
+void output_readLinkResults(long period, int index)
 //
 //  Input:   period = index of reporting time period
-//           index = link index
+//           index = link index in binary output file
 //  Output:  none
 //  Purpose: reads computed results for a link at a specific time period.
 //
 {
-    INT4 bytePos = OutputStartPos + (period-1)*BytesPerPeriod;
-    bytePos += sizeof(REAL8) + NumSubcatch*NumSubcatchVars*sizeof(REAL4);
-    bytePos += NumNodes*NumNodeVars*sizeof(REAL4);
-    bytePos += index*NumLinkVars*sizeof(REAL4);
-    fseek(Fout.file, bytePos, SEEK_SET);
+    long offset = (NumSubcatch*NumSubcatchVars + NumNodes*NumNodeVars + index*NumLinkVars);
+    F_OFF p = period;
+    F_OFF bytePos = OutputStartPos + (p-1)*BytesPerPeriod +
+        sizeof(REAL8) + (F_OFF)offset * sizeof(REAL4);
+    F_SEEK(Fout.file, bytePos, SEEK_SET);
     fread(LinkResults, sizeof(REAL4), NumLinkVars, Fout.file);
     fread(SysResults, sizeof(REAL4), MAX_SYS_RESULTS, Fout.file);
 }

@@ -45,4 +45,3 @@ void bin_output_end(void);
 void bin_output_close(void);
 
 void bin_saveDate(DateTime reportDate,TFile Fout);
-void bin_readSubcatchResults(int period, int index);

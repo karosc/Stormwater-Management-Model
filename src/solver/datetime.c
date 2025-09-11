@@ -261,7 +261,7 @@ void datetime_dateToStr(DateTime date, char *s)
 
     case ISO:
 
-        sprintf(dateStr, "%04d-%02d-%02d", y, m, d);
+        sprintf(s, "%04d-%02d-%02d", y, m, d);
         break;
 
     default:

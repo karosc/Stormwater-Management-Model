@@ -256,11 +256,10 @@ int output_open()
     ErrorCode = OutIface_init();
     return ErrorCode;
 }
-*/
 
-    //=============================================================================
+//=============================================================================
 
-    void output_saveResults(double reportTime)
+void output_saveResults(double reportTime)
 //
 //  Input:   reportTime = elapsed simulation time (millisec)
 //  Output:  none
